@@ -122,13 +122,37 @@ interface BaseStructuredLog {
 
 /**
  * Structured Logger Service
+ *
+ * @why-no-constructor-params
+ * Constructor에 파라미터가 없는 이유:
+ * - NestJS는 constructor의 모든 파라미터를 의존성 주입 대상으로 인식
+ * - Primitive type (string, number 등)은 자동 주입 불가
+ * - context를 파라미터로 받으면 "UnknownDependenciesException" 발생
+ * - 해결: context를 내부에서 기본값으로 설정
  */
 @Injectable()
 export class StructuredLoggerService {
   private readonly logger: Logger;
 
-  constructor(context: string = 'App') {
-    this.logger = new Logger(context);
+  /**
+   * @why-hardcoded-context
+   * context를 'App'으로 고정하는 이유:
+   * - LoggingInterceptor, HttpExceptionFilter 등 여러 곳에서 사용
+   * - 로그에 [App] 태그가 붙어서 어떤 서비스의 로그인지 구분 가능
+   * - 필요 시 Logger 클래스를 직접 사용하여 다른 context 지정 가능
+   *
+   * @alternative
+   * 만약 context를 동적으로 받고 싶다면:
+   * ```typescript
+   * import { Inject, Optional } from '@nestjs/common';
+   *
+   * constructor(@Optional() @Inject('LOGGER_CONTEXT') context?: string) {
+   *   this.logger = new Logger(context || 'App');
+   * }
+   * ```
+   */
+  constructor() {
+    this.logger = new Logger('App');
   }
 
   /**
