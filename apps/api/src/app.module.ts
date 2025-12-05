@@ -232,8 +232,21 @@ export class AppModule implements NestModule {
    *
    * @description
    * Request ID 미들웨어를 모든 라우트에 적용
+   *
+   * @why-not-wildcard
+   * `.forRoutes('*')` 대신 `'/'`를 사용하는 이유:
+   * - NestJS v9+ 부터 와일드카드 패턴 `'*'`이 deprecated
+   * - 경고: "WARN [LegacyRouteResolver] Unsupported route path: '/api/*'"
+   * - 해결: `'/'`를 사용하면 모든 하위 경로에 자동 적용
+   * - 효과: 경고 메시지 제거, 동일한 기능 유지
+   *
+   * @alternative
+   * 다른 방법들:
+   * 1. `.forRoutes({ path: '/', method: RequestMethod.ALL })` (명시적)
+   * 2. `.forRoutes('*')` (경고 무시)
+   * 3. `.exclude()` 사용 (특정 경로 제외)
    */
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes('*');
+    consumer.apply(RequestIdMiddleware).forRoutes('/');
   }
 }
