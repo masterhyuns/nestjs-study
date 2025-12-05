@@ -1,0 +1,15 @@
+{
+  "name": "@repo/types",
+  "version": "1.0.0",
+  "description": "공통 TypeScript 타입 정의",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

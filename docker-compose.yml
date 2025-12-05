@@ -1,0 +1,128 @@
+version: '3.9'
+
+services:
+  #############################################################################
+  # PostgreSQL 16 - 메인 데이터베이스
+  #############################################################################
+  postgres:
+    image: postgres:16-alpine
+    container_name: collaboration-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: collaboration_dev
+      # 성능 최적화
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    ports:
+      - '12001:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # 초기화 스크립트 (선택적)
+      - ./infrastructure/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - collaboration-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  #############################################################################
+  # Redis 7 - 캐시 & 세션 & Queue
+  #############################################################################
+  redis:
+    image: redis:7-alpine
+    container_name: collaboration-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ""
+    ports:
+      - '12002:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - collaboration-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  #############################################################################
+  # MinIO - S3 호환 오브젝트 스토리지
+  #############################################################################
+  minio:
+    image: minio/minio:latest
+    container_name: collaboration-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '12003:9000'  # API
+      - '12004:9001'  # Console
+    volumes:
+      - minio_data:/data
+    networks:
+      - collaboration-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  #############################################################################
+  # MinIO Client - 버킷 자동 생성
+  #############################################################################
+  minio-client:
+    image: minio/mc:latest
+    container_name: collaboration-minio-client
+    depends_on:
+      - minio
+    networks:
+      - collaboration-network
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc config host add minio http://minio:9000 minioadmin minioadmin; do
+        echo 'Waiting for MinIO...';
+        sleep 1;
+      done;
+      /usr/bin/mc mb minio/collaboration-files --ignore-existing;
+      /usr/bin/mc anonymous set public minio/collaboration-files;
+      exit 0;
+      "
+
+  #############################################################################
+  # pgAdmin 4 - PostgreSQL 관리 도구 (선택적)
+  #############################################################################
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: collaboration-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - '12005:80'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - collaboration-network
+    depends_on:
+      - postgres
+
+networks:
+  collaboration-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  pgadmin_data:
+    driver: local

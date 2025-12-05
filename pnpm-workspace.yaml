@@ -1,0 +1,10 @@
+# pnpm 워크스페이스 설정
+packages:
+  # 애플리케이션
+  - 'apps/*'
+
+  # 공유 패키지
+  - 'packages/*'
+
+  # 개발 도구
+  - 'tooling/*'
