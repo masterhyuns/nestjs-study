@@ -48,8 +48,14 @@ Thumbs.db
 .turbo/
 
 # Prisma
-apps/api/prisma/migrations/*
-!apps/api/prisma/migrations/.gitkeep
+# SQLite database files (로컬 개발용, Git에 포함 안 함)
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+apps/api/prisma/*.db-shm
+apps/api/prisma/*.db-wal
+
+# Migrations는 Git에 포함 (다른 개발자와 공유)
+# apps/api/prisma/migrations/  ← 이제 포함시킴
 
 # MinIO/S3 local storage
 .minio/
