@@ -4,6 +4,230 @@
 
 본 프로젝트는 **Prisma ORM**과 **Raw SQL**을 하이브리드로 사용하여 **타입 안전성**과 **성능 최적화**를 모두 달성합니다.
 
+## Prisma란 무엇인가?
+
+### 1. Prisma의 정의
+
+**Prisma는 차세대 Node.js/TypeScript ORM (Object-Relational Mapping)**입니다.
+
+```
+┌─────────────────┐
+│  Your Code      │  ← TypeScript/JavaScript로 작성
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│  Prisma Client  │  ← 자동 생성된 타입 안전 쿼리 API
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│  Prisma Schema  │  ← 데이터베이스 모델 정의 (schema.prisma)
+└────────┬────────┘
+         │
+┌────────▼────────┐
+│  Database       │  ← PostgreSQL, MySQL, MongoDB 등
+└─────────────────┘
+```
+
+**핵심 구성 요소:**
+
+1. **Prisma Schema**: 데이터베이스 모델을 선언적으로 정의하는 DSL (Domain-Specific Language)
+2. **Prisma Client**: Schema로부터 자동 생성되는 타입 안전한 쿼리 빌더
+3. **Prisma Migrate**: 스키마 변경을 데이터베이스에 적용하는 마이그레이션 도구
+4. **Prisma Studio**: GUI 데이터베이스 관리 도구
+
+### 2. Prisma vs JPA (Java Persistence API)
+
+#### 공통점: 둘 다 ORM이다
+
+| 특성 | Prisma (Node.js) | JPA (Java) |
+|------|------------------|------------|
+| **역할** | ORM (Object-Relational Mapping) | ORM (Object-Relational Mapping) |
+| **목적** | DB 테이블 ↔ 객체 매핑 | DB 테이블 ↔ 객체 매핑 |
+| **추상화** | SQL을 직접 작성하지 않고 코드로 쿼리 | SQL을 직접 작성하지 않고 코드로 쿼리 |
+| **마이그레이션** | Prisma Migrate | Hibernate (구현체) Schema Auto-Update |
+| **관계 매핑** | `@relation` 데코레이터 | `@OneToMany`, `@ManyToOne` 어노테이션 |
+
+#### 차이점: 설계 철학이 다르다
+
+| 항목 | Prisma | JPA/Hibernate |
+|------|--------|---------------|
+| **스키마 정의 방식** | **Schema-First** (schema.prisma → DB) | **Code-First** (Java Entity → DB) |
+| **타입 안전성** | ✅ **컴파일 타임 타입 체크** (자동 생성) | ⚠️ 런타임 리플렉션 (어노테이션) |
+| **N+1 문제** | ✅ **자동 해결** (findMany + include) | ❌ 수동 해결 (`@EntityGraph`, Fetch Join) |
+| **쿼리 언어** | TypeScript 메서드 체이닝 | JPQL (Java Persistence Query Language) |
+| **러닝 커브** | ✅ 낮음 (직관적) | ⚠️ 높음 (LazyLoading, EntityManager, JPQL) |
+| **성능 튜닝** | Raw SQL 혼용 (하이브리드) | Native Query, QueryDSL 병행 |
+
+#### 코드 비교
+
+**JPA (Java + Spring Boot):**
+```java
+// Entity 정의
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(unique = true, nullable = false)
+    private String email;
+
+    @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
+    private List<Post> posts;
+}
+
+// Repository 사용
+@Repository
+public interface UserRepository extends JpaRepository<User, UUID> {
+    Optional<User> findByEmail(String email);
+}
+
+// Service에서 사용
+User user = userRepository.findByEmail("test@example.com")
+    .orElseThrow(() -> new NotFoundException());
+```
+
+**Prisma (TypeScript + NestJS):**
+```typescript
+// Schema 정의 (schema.prisma)
+model User {
+  id    String @id @default(uuid())
+  email String @unique
+  posts Post[]
+}
+
+// 자동 생성된 Client 사용
+const user = await prisma.user.findUnique({
+  where: { email: "test@example.com" },
+  include: { posts: true }, // N+1 자동 해결 (LEFT JOIN)
+});
+
+// 타입이 자동 추론됨 (user.email, user.posts[0].title)
+```
+
+### 3. 왜 Prisma를 선택했는가?
+
+#### ✅ 선택 이유 (Pros)
+
+**1️⃣ TypeScript 타입 안전성 (Type Safety)**
+
+```typescript
+// ❌ TypeORM: 런타임 에러 가능
+const user = await userRepository.findOne({ where: { emial: "test" } }); // 오타 발견 못함
+
+// ✅ Prisma: 컴파일 타임 에러
+const user = await prisma.user.findUnique({
+  where: { emial: "test" } // TS 에러: 'emial' does not exist
+});
+```
+
+**2️⃣ 자동 코드 생성 (Auto-Generation)**
+
+```bash
+# Schema 변경 후
+pnpm prisma generate
+
+# → Prisma Client가 자동 재생성
+# → 모든 타입이 최신 상태로 동기화
+```
+
+**왜 중요한가?**
+- **TypeORM**: Entity 클래스를 수동으로 작성 → 실수 가능
+- **Prisma**: Schema만 수정 → Client 자동 생성 → 실수 원천 차단
+
+**3️⃣ N+1 문제 자동 해결**
+
+```typescript
+// TypeORM: N+1 발생 (100명 사용자 = 101 쿼리)
+const users = await userRepository.find(); // 1 쿼리
+for (const user of users) {
+  const posts = await postRepository.findByUserId(user.id); // N 쿼리
+}
+
+// Prisma: 자동 최적화 (단 2 쿼리)
+const users = await prisma.user.findMany({
+  include: { posts: true } // LEFT JOIN으로 자동 변환
+});
+```
+
+**4️⃣ 뛰어난 개발자 경험 (DX - Developer Experience)**
+
+- **자동완성**: VS Code에서 모든 필드 자동완성
+- **마이그레이션**: `prisma migrate dev` 한 줄로 DB 스키마 동기화
+- **Prisma Studio**: GUI로 데이터베이스 직접 조작
+
+**5️⃣ 성능 최적화 용이성**
+
+```typescript
+// 80% Prisma (생산성)
+const users = await prisma.user.findMany({ where: { isActive: true } });
+
+// 20% Raw SQL (성능 크리티컬)
+const dashboard = await prisma.$queryRaw`
+  SELECT ...복잡한 집계 쿼리...
+`;
+```
+
+**왜 하이브리드 전략인가?**
+- Prisma만 사용 시 → 복잡한 쿼리에서 성능 한계
+- Raw SQL만 사용 시 → 타입 안전성 포기, 생산성 저하
+- **결론**: 상황에 맞게 선택 (Prisma 80% + Raw SQL 20%)
+
+#### ⚠️ 단점 (Cons) 및 대응 방안
+
+| 단점 | 대응 방안 |
+|------|----------|
+| **복잡한 쿼리 성능** | Raw SQL 혼용 (`$queryRaw`) |
+| **Window Function 미지원** | PostgreSQL Raw SQL 사용 |
+| **런타임 오버헤드** | Production 빌드 시 최소화 |
+| **Schema 변경 시 재생성 필요** | CI/CD 파이프라인에 자동화 |
+
+### 4. Prisma vs TypeORM vs MikroORM
+
+| 항목 | Prisma | TypeORM | MikroORM |
+|------|--------|---------|----------|
+| **타입 안전성** | ✅✅✅ 완벽 (자동 생성) | ⚠️ 부분적 (데코레이터) | ✅✅ 좋음 (리플렉션) |
+| **러닝 커브** | ✅ 낮음 | ⚠️ 중간 | ⚠️ 높음 |
+| **N+1 해결** | ✅ 자동 | ❌ 수동 | ✅ 자동 |
+| **마이그레이션** | ✅ 우수 | ⚠️ 제한적 | ✅ 우수 |
+| **성능** | ⚠️ 일반적 (Raw SQL 혼용) | ⚠️ 일반적 | ✅ 우수 |
+| **커뮤니티** | ✅✅ 급성장 | ✅✅✅ 최대 | ⚠️ 작음 |
+| **NestJS 통합** | ✅ 공식 지원 | ✅✅ 공식 추천 | ✅ 가능 |
+
+**우리의 선택: Prisma**
+
+1. **타입 안전성 최우선**: TypeScript의 장점을 100% 활용
+2. **빠른 개발 속도**: 스타트업/협업 플랫폼에서 속도가 중요
+3. **확장성**: Raw SQL로 성능 크리티컬 부분 커버 가능
+4. **팀 생산성**: 러닝 커브가 낮아 신입 개발자도 빠르게 적응
+
+### 5. Prisma 사용 시 핵심 원칙
+
+```typescript
+/**
+ * Prisma 사용 원칙
+ *
+ * 1. 단순 CRUD → Prisma (생산성)
+ * 2. 복잡한 집계/분석 → Raw SQL (성능)
+ * 3. 동적 쿼리 → Kysely (타입 안전 + 유연성)
+ * 4. 트랜잭션 → Prisma $transaction (일관성)
+ * 5. 마이그레이션 → Prisma Migrate (버전 관리)
+ */
+
+// ✅ Prisma: 단순 조회
+const user = await prisma.user.findUnique({ where: { id } });
+
+// ✅ Raw SQL: 복잡한 집계
+const stats = await prisma.$queryRaw`SELECT ...`;
+
+// ✅ 트랜잭션: 일관성 보장
+await prisma.$transaction([
+  prisma.user.update(...),
+  prisma.audit.create(...),
+]);
+```
+
 ## Prisma vs Raw SQL 사용 기준
 
 ### 📋 의사결정 매트릭스
