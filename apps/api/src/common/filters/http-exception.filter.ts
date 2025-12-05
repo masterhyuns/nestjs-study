@@ -43,19 +43,26 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { ApiErrorResponse } from '../dto/api-response.dto';
 import { ErrorCode, ErrorMessage } from '../constants/error-codes';
+import { StructuredLoggerService } from '../logger/structured-logger.service';
 
 /**
- * 모든 예외를 캐치하는 전역 필터
+ * 모든 예외를 캐치하는 전역 필터 (StructuredLoggerService 사용)
+ *
+ * @why-structured-logger
+ * StructuredLoggerService를 사용하는 이유:
+ * - **일관성**: LoggingInterceptor와 동일한 로그 포맷
+ * - **타입 안전성**: HttpErrorLog 인터페이스로 타입 보장
+ * - **중앙화**: 로깅 로직 변경 시 한 곳만 수정
+ * - **자동 분류**: 4xx(WARN), 5xx(ERROR) 자동 레벨 결정
  */
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger(HttpExceptionFilter.name);
+  constructor(private readonly logger: StructuredLoggerService) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -139,8 +146,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
           : null;
     }
 
-    // 에러 로깅
-    this.logError(exception, request, status, errorCode);
+    // 에러 로깅 (StructuredLoggerService 사용)
+    this.logger.logError(
+      {
+        requestId,
+        method: request.method,
+        url: request.url,
+        status,
+        errorCode,
+        message,
+        stack: exception instanceof Error ? exception.stack : undefined,
+        body: request.body,
+        query: request.query,
+        params: request.params,
+        userId: (request as any).user?.id,
+      },
+      exception,
+    );
 
     // 에러 응답 생성
     const errorResponse = new ApiErrorResponse(errorCode, message, details, {
@@ -316,128 +338,41 @@ export class HttpExceptionFilter implements ExceptionFilter {
   }
 
   /**
-   * 에러 로깅
+   * @migration-note
+   * 기존의 logError() 메서드는 StructuredLoggerService.logError()로 대체되었습니다.
    *
-   * @description
-   * 에러를 로그 레벨에 따라 기록
+   * **변경 사항:**
+   * - 위치: apps/api/src/common/logger/structured-logger.service.ts
+   * - 장점:
+   *   1. LoggingInterceptor와 동일한 로그 포맷
+   *   2. 타입 안전성 (HttpErrorLog 인터페이스)
+   *   3. 자동 로그 레벨 결정 (4xx: WARN, 5xx: ERROR)
+   *   4. 자동 Stack Trace 처리
+   *   5. 환경별 민감 정보 제거
    *
-   * @why-different-log-levels
-   * 로그 레벨을 분리하는 이유:
-   * - **WARN (4xx)**: 클라이언트 오류, 정상 동작 범위 (예: 잘못된 입력)
-   * - **ERROR (5xx)**: 서버 오류, 즉시 조치 필요 (예: DB 장애)
+   * **호출 방법:**
+   * ```typescript
+   * this.logger.logError(
+   *   {
+   *     requestId,
+   *     method,
+   *     url,
+   *     status,
+   *     errorCode,
+   *     message,
+   *     stack,
+   *     body,
+   *     query,
+   *     params,
+   *   },
+   *   exception,
+   * );
+   * ```
    *
-   * @why-log-request-info
-   * Request 정보를 로깅하는 이유:
-   * - 재현: 같은 요청으로 에러 재현 가능
-   * - 디버깅: 어떤 상황에서 에러가 발생했는지 파악
-   * - 통계: 어떤 엔드포인트가 에러가 많은지 분석
-   *
-   * @why-environment-split
-   * 개발/프로덕션 분기:
-   * - 개발: body, query, params 모두 로깅 (상세 디버깅)
-   * - 프로덕션: 민감 정보 제외 (보안, GDPR 준수)
-   *
-   * @security
-   * 로깅하지 말아야 할 정보:
-   * - ❌ 비밀번호 (body.password)
-   * - ❌ JWT 토큰 (headers.authorization)
-   * - ❌ 신용카드 정보
-   * - ✅ Request ID, URL, Method, Status Code
-   *
-   * @monitoring
-   * 향후 연동:
-   * - Sentry: 에러 추적 및 알림
-   * - DataDog: APM 및 로그 분석
-   * - ELK Stack: 로그 수집 및 검색
+   * @future 향후 확장
+   * StructuredLoggerService에서 처리:
+   * - Sentry, DataDog 연동
+   * - 에러 메트릭 수집
+   * - 민감 정보 자동 마스킹
    */
-  private logError(
-    exception: unknown,
-    request: Request,
-    status: number,
-    errorCode: string,
-  ): void {
-    const { method, url, body, query, params } = request;
-
-    /**
-     * 구조화된 로그 데이터
-     *
-     * @why-json-format
-     * JSON 형식으로 로깅하는 이유:
-     * - 파싱 용이: 로그 분석 도구가 자동 파싱
-     * - 검색 가능: 특정 필드로 검색 (예: errorCode:"DB_UNIQUE_CONSTRAINT")
-     * - 집계 가능: 에러 통계, 대시보드 생성
-     */
-    const logData = {
-      timestamp: new Date().toISOString(),
-      method,
-      url,
-      status,
-      errorCode,
-
-      /**
-       * 왜 개발 환경에서만 body/query/params를 로깅하는가?
-       * - 개발: 빠른 디버깅 (모든 정보 필요)
-       * - 프로덕션: 보안 (비밀번호, 개인정보 노출 방지)
-       */
-      body: process.env.NODE_ENV === 'development' ? body : undefined,
-      query: process.env.NODE_ENV === 'development' ? query : undefined,
-      params: process.env.NODE_ENV === 'development' ? params : undefined,
-    };
-
-    const logMessage = `${method} ${url} ${status} ${errorCode}`;
-
-    /**
-     * 로그 레벨 결정
-     *
-     * @why-this-threshold
-     * - 500 이상: ERROR - 서버 책임, 즉시 조치 필요
-     * - 400-499: WARN - 클라이언트 오류, 참고용
-     * - 300 이하: (로깅 안 함) - 정상 동작
-     */
-    if (status >= 500) {
-      // 서버 에러: ERROR 레벨 + Stack Trace
-      this.logger.error(logMessage, JSON.stringify(logData, null, 2));
-
-      /**
-       * Stack Trace 로깅
-       *
-       * @why
-       * - 원인 파악: 어느 라인에서 에러 발생했는지
-       * - 호출 경로: 어떤 함수 호출 순서로 에러 발생했는지
-       * - 디버깅: 프로덕션에서 재현 어려울 때 유용
-       */
-      if (exception instanceof Error) {
-        this.logger.error(exception.stack);
-      }
-    } else if (status >= 400) {
-      // 클라이언트 에러: WARN 레벨 (Stack Trace 불필요)
-      this.logger.warn(logMessage, JSON.stringify(logData, null, 2));
-    }
-
-    /**
-     * @future 향후 확장
-     *
-     * 1. 외부 모니터링 연동:
-     * ```typescript
-     * if (status >= 500) {
-     *   await this.sentryService.captureException(exception);
-     *   await this.slackService.sendAlert(logMessage);
-     * }
-     * ```
-     *
-     * 2. 에러 메트릭 수집:
-     * ```typescript
-     * this.metricsService.incrementErrorCounter({
-     *   status,
-     *   errorCode,
-     *   endpoint: url,
-     * });
-     * ```
-     *
-     * 3. 민감 정보 자동 마스킹:
-     * ```typescript
-     * const maskedBody = this.maskSensitiveData(body);
-     * ```
-     */
-  }
 }

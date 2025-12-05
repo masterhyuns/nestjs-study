@@ -32,6 +32,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
+import { StructuredLoggerService } from './common/logger/structured-logger.service';
 // import { JwtAuthGuard } from './common/guards/jwt-auth.guard';  // JWT 구현 후 활성화
 
 /**
@@ -45,6 +46,17 @@ const bootstrap = async (): Promise<void> => {
 
   // ConfigService 가져오기
   const configService = app.get(ConfigService);
+
+  /**
+   * StructuredLoggerService 가져오기
+   *
+   * @why-app-get
+   * app.get()으로 서비스를 가져오는 이유:
+   * - LoggerModule이 Global 모듈이므로 어디서든 가져올 수 있음
+   * - Filter, Interceptor에 의존성 주입하기 위함
+   * - new로 생성하면 DI 혜택 못 받음
+   */
+  const logger = app.get(StructuredLoggerService);
 
   // Reflector 가져오기 (Guards용)
   // const reflector = app.get(Reflector);  // JWT 구현 후 활성화
@@ -71,7 +83,17 @@ const bootstrap = async (): Promise<void> => {
   // ==========================================================================
   // Global Filters (예외 처리)
   // ==========================================================================
-  app.useGlobalFilters(new HttpExceptionFilter());
+
+  /**
+   * HttpExceptionFilter with Dependency Injection
+   *
+   * @why-inject-logger
+   * StructuredLoggerService를 주입하는 이유:
+   * - 일관된 로그 포맷 (LoggingInterceptor와 동일)
+   * - 타입 안전 로깅 (HttpErrorLog 인터페이스)
+   * - 자동 로그 레벨 결정 (4xx: WARN, 5xx: ERROR)
+   */
+  app.useGlobalFilters(new HttpExceptionFilter(logger));
 
   // ==========================================================================
   // Global Pipes (검증 & 변환)
@@ -92,10 +114,20 @@ const bootstrap = async (): Promise<void> => {
   // ==========================================================================
   // Global Interceptors (로깅 & 응답 변환 & 타임아웃)
   // ==========================================================================
+
+  /**
+   * Interceptors with Dependency Injection
+   *
+   * @why-inject-logger
+   * LoggingInterceptor에 StructuredLoggerService를 주입:
+   * - HttpExceptionFilter와 동일한 로그 포맷
+   * - 코드 중복 제거 (sanitize, 환경 분기)
+   * - 중앙화된 로깅 로직
+   */
   app.useGlobalInterceptors(
-    new LoggingInterceptor(),      // 요청/응답 로깅
-    new TransformInterceptor(),    // 응답 포맷 변환
-    new TimeoutInterceptor(30000), // 30초 타임아웃
+    new LoggingInterceptor(logger), // 요청/응답 로깅
+    new TransformInterceptor(),     // 응답 포맷 변환
+    new TimeoutInterceptor(30000),  // 30초 타임아웃
   );
 
   // ==========================================================================

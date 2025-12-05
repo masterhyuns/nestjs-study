@@ -22,6 +22,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { throttlerConfig } from './common/config/throttler.config';
 import { validate } from './common/config/env.validation';
 import { DatabaseModule } from './shared/database/database.module';
+import { LoggerModule } from './common/logger/logger.module';
 import { UserModule } from './modules/user/user.module';
 
 /**
@@ -48,6 +49,32 @@ import { UserModule } from './modules/user/user.module';
     // 데이터베이스 (전역)
     // ==========================================================================
     DatabaseModule,
+
+    // ==========================================================================
+    // 로깅 (전역)
+    // ==========================================================================
+
+    /**
+     * LoggerModule - 구조화된 로깅
+     *
+     * @provides
+     * - StructuredLoggerService: 일관된 로그 포맷
+     * - HTTP 요청/응답/에러 로깅
+     * - 타입 안전 로깅 인터페이스
+     *
+     * @why-global
+     * Global 모듈로 선언한 이유:
+     * - Interceptor, Filter, Service 모든 곳에서 사용
+     * - import 없이 의존성 주입 가능
+     * - 로깅 방식 변경 시 한 곳만 수정
+     *
+     * @usage
+     * ```typescript
+     * constructor(private readonly logger: StructuredLoggerService) {}
+     * this.logger.logInfo('작업 시작', { userId: '123' });
+     * ```
+     */
+    LoggerModule,
 
     // ==========================================================================
     // 도메인 모듈
@@ -151,16 +178,6 @@ import { UserModule } from './modules/user/user.module';
     // CacheModule,
 
     /**
-     * @future LoggerModule - Winston 로깅
-     *
-     * @provides
-     * - 구조화된 로깅 (JSON)
-     * - 로그 레벨별 파일 분리
-     * - 외부 로그 수집 (ELK, DataDog)
-     */
-    // LoggerModule,
-
-    /**
      * @future StorageModule - 파일 스토리지
      *
      * @provides
@@ -171,7 +188,43 @@ import { UserModule } from './modules/user/user.module';
     // StorageModule,
   ],
   controllers: [HealthController],
-  providers: [],
+  providers: [
+    /**
+     * @why-app-providers
+     * APP_FILTER, APP_INTERCEPTOR를 providers에 등록하는 이유:
+     * - 의존성 주입 가능: StructuredLoggerService 주입
+     * - 모듈 컨텍스트: NestJS IoC 컨테이너에서 관리
+     * - 테스트 용이: Mock 주입 가능
+     *
+     * @alternative
+     * main.ts에서 new로 생성 (의존성 주입 불가):
+     * ```typescript
+     * app.useGlobalFilters(new HttpExceptionFilter());  // ❌ DI 불가
+     * ```
+     */
+
+    /**
+     * HttpExceptionFilter - 전역 예외 처리
+     *
+     * @why-app-filter
+     * APP_FILTER를 사용하는 이유:
+     * - StructuredLoggerService 의존성 주입
+     * - 모듈 레벨 등록 (main.ts 간소화)
+     */
+    // NOTE: APP_FILTER는 main.ts에서 직접 등록합니다.
+    // 이유: StructuredLoggerService 주입 시 순환 의존성 이슈 가능
+    // 해결: main.ts에서 app.get(StructuredLoggerService)로 주입
+
+    /**
+     * LoggingInterceptor - HTTP 요청/응답 로깅
+     *
+     * @why-app-interceptor
+     * APP_INTERCEPTOR를 사용하는 이유:
+     * - StructuredLoggerService 의존성 주입
+     * - 모듈 레벨 등록
+     */
+    // NOTE: APP_INTERCEPTOR도 main.ts에서 직접 등록합니다.
+  ],
 })
 export class AppModule implements NestModule {
   /**
