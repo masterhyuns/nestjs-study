@@ -360,6 +360,20 @@ export class LoggingInterceptor implements NestInterceptor {
       tap({
         /**
          * 성공 응답 로깅
+         *
+         * @why-statuscode-fallback
+         * response.statusCode || 200을 사용하는 이유:
+         * - tap의 next 콜백은 Controller가 값을 반환할 때 호출됨
+         * - 이 시점에 response.statusCode가 아직 설정되지 않을 수 있음
+         * - statusCode가 undefined이면 기본값 200 사용
+         * - 에러: "Invalid status code. Status code must be an integer" 방지
+         *
+         * @timing
+         * NestJS Interceptor 실행 순서:
+         * 1. intercept() 호출
+         * 2. next.handle() 실행 (Controller)
+         * 3. tap의 next 콜백 호출 ← statusCode가 undefined일 수 있음
+         * 4. 실제 HTTP 응답 전송 ← statusCode가 최종 설정됨
          */
         next: () => {
           const duration = Date.now() - startTime;
@@ -368,7 +382,9 @@ export class LoggingInterceptor implements NestInterceptor {
             requestId: requestLogData.requestId,
             method: requestLogData.method,
             url: requestLogData.url,
-            statusCode: response.statusCode,
+            statusCode: response.statusCode || 200,
+            //          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            //          undefined이면 200 사용 (성공 기본값)
             duration,
             userId: requestLogData.userId,
           });
