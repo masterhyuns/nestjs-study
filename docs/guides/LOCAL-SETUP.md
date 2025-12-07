@@ -523,22 +523,92 @@ choco install openssl
 **팀 전체가 동일한 바이너리를 공유할 수 있어 가장 안정적입니다.**
 
 **Step 1: Prisma 버전 및 엔진 commit hash 확인**
+
+**❗ 주의**: `npx prisma -v`를 실행하면 엔진 다운로드를 시도하므로 에러가 발생할 수 있습니다.
+**아래 대체 방법을 먼저 시도하세요.**
+
+**방법 A: package.json에서 Prisma 버전 확인 (추천)**
 ```bash
 # PowerShell에서 실행
 cd apps/api
-npx prisma -v
+cat package.json | Select-String -Pattern "prisma"
+
+# 또는
+Get-Content package.json | Select-String "prisma"
 
 # 출력 예시:
-# prisma                  : 5.22.0
-# @prisma/client          : 5.22.0
-# Computed binaryTarget   : windows
-# Current platform        : windows
-# Query Engine (Node-API) : libquery-engine 605197351a3c8bdd595af2d2a9bc3025bca48ea2 (at node_modules\.prisma\client\query_engine-windows.dll.node)
-#                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-#                           이 해시값을 복사하세요
+# "prisma": "^5.22.0",
+# "@prisma/client": "^5.22.0"
 ```
 
-**중요**: `605197351a3c8bdd595af2d2a9bc3025bca48ea2` 같은 긴 해시값이 **commit hash**입니다.
+**방법 B: node_modules에서 commit hash 직접 확인**
+```bash
+# PowerShell에서 실행
+cd apps/api
+
+# Prisma Client 설치되어 있다면
+cat node_modules\.prisma\client\package.json | Select-String "prismaCommit"
+
+# 또는
+Get-Content node_modules\.prisma\client\libquery_engine-windows.dll.node.txt 2>$null
+
+# 출력 예시:
+# "prismaCommit": "605197351a3c8bdd595af2d2a9bc3025bca48ea2"
+```
+
+**방법 C: npm에서 engines-version 패키지 확인**
+
+```bash
+# PowerShell에서 실행
+cd apps/api
+
+# @prisma/engines-version 패키지에서 commit hash 확인
+cat node_modules\@prisma\engines-version\package.json | Select-String "version"
+
+# 또는 engines 패키지 확인
+cat node_modules\@prisma\engines\package.json
+```
+
+**방법 D: 이 프로젝트의 정확한 commit hash (Prisma 6.1.0) ⭐**
+
+**이 프로젝트는 Prisma 6.1.0을 사용합니다.**
+
+**Prisma 6.1.0의 엔진 commit hash**:
+```
+11f085a2012c0f4778414c8db2651556ee0ef959
+```
+
+**다운로드 URL**:
+```bash
+# query-engine
+https://binaries.prisma.sh/all_commits/11f085a2012c0f4778414c8db2651556ee0ef959/windows/query_engine-windows.dll.node.gz
+
+# schema-engine
+https://binaries.prisma.sh/all_commits/11f085a2012c0f4778414c8db2651556ee0ef959/windows/schema-engine-windows.exe.gz
+
+# introspection-engine
+https://binaries.prisma.sh/all_commits/11f085a2012c0f4778414c8db2651556ee0ef959/windows/introspection-engine-windows.exe.gz
+```
+
+**다른 버전을 사용하는 경우**:
+1. npm registry에서 확인: `https://registry.npmjs.org/@prisma/engines/{버전}`
+2. 버전 필드에서 commit hash 추출 (예: `6.1.0-21.{commit_hash}`)
+
+**방법 E: 엔진 다운로드 스킵하고 실행 (임시)**
+```powershell
+# PowerShell에서 실행
+$env:PRISMA_SKIP_POSTINSTALL_GENERATE="1"
+npx prisma -v
+
+# 출력에서 Query Engine 라인의 해시값 확인
+```
+
+**확인된 commit hash 예시**:
+```
+605197351a3c8bdd595af2d2a9bc3025bca48ea2
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+이 전체 해시값을 복사하세요
+```
 
 **Step 2: 엔진 바이너리 다운로드**
 
