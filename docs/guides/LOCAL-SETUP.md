@@ -517,37 +517,196 @@ choco install openssl
 # Win64 OpenSSL v3.x.x Light 다운로드
 ```
 
-**해결 방법 7: 수동 엔진 다운로드 (최후의 수단)**
+**해결 방법 7: 로컬 엔진 바이너리 사용 (PRISMA_QUERY_ENGINE_BINARY) ⭐ 추천**
+
+이 방법은 엔진을 미리 다운로드해서 로컬 파일로 바라보게 설정합니다.
+**팀 전체가 동일한 바이너리를 공유할 수 있어 가장 안정적입니다.**
+
+**Step 1: Prisma 버전 및 엔진 commit hash 확인**
 ```bash
-# 1. Prisma 버전 확인
+# PowerShell에서 실행
+cd apps/api
 npx prisma -v
-# 예: prisma: 5.x.x
 
-# 2. 엔진 다운로드 URL (버전에 맞게 수정)
-# https://binaries.prisma.sh/all_commits/{commit_hash}/windows/query-engine.exe.gz
-# {commit_hash}는 npx prisma -v 결과에서 확인
+# 출력 예시:
+# prisma                  : 5.22.0
+# @prisma/client          : 5.22.0
+# Computed binaryTarget   : windows
+# Current platform        : windows
+# Query Engine (Node-API) : libquery-engine 605197351a3c8bdd595af2d2a9bc3025bca48ea2 (at node_modules\.prisma\client\query_engine-windows.dll.node)
+#                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#                           이 해시값을 복사하세요
+```
 
-# 3. 다운로드 후 압축 해제하여 아래 경로에 배치
-# C:\Users\{사용자}\.cache\prisma\{version}\windows\
+**중요**: `605197351a3c8bdd595af2d2a9bc3025bca48ea2` 같은 긴 해시값이 **commit hash**입니다.
 
-# 4. 다시 실행
+**Step 2: 엔진 바이너리 다운로드**
+
+**방법 A: 브라우저에서 다운로드 (VPN 끄고 시도)**
+```
+1. URL 형식:
+   https://binaries.prisma.sh/all_commits/{commit_hash}/windows/query_engine-windows.dll.node.gz
+
+2. 예시 (위 해시값 사용):
+   https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/query_engine-windows.dll.node.gz
+
+3. 다운로드 후 압축 해제 (7-Zip 사용)
+   - 다운로드한 .gz 파일을 7-Zip으로 압축 해제
+   - 결과: query_engine-windows.dll.node 파일 생성
+```
+
+**방법 B: PowerShell로 다운로드 (고급)**
+```powershell
+# PowerShell에서 실행 (commit_hash 부분을 실제 값으로 변경)
+$commitHash = "605197351a3c8bdd595af2d2a9bc3025bca48ea2"  # npx prisma -v에서 확인한 값
+$url = "https://binaries.prisma.sh/all_commits/$commitHash/windows/query_engine-windows.dll.node.gz"
+$outputPath = "$env:USERPROFILE\Downloads\query_engine-windows.dll.node.gz"
+
+# 다운로드
+Invoke-WebRequest -Uri $url -OutFile $outputPath
+
+# 압축 해제 (PowerShell 5.0+)
+gzip -d $outputPath  # 또는 7-Zip 사용
+```
+
+**Step 3: 엔진 파일을 프로젝트 내부에 저장 (팀 공유용)**
+
+```bash
+# 프로젝트 루트에 prisma-engines 폴더 생성
+mkdir prisma-engines
+cd prisma-engines
+mkdir windows
+
+# 다운로드한 파일을 여기에 복사
+# query_engine-windows.dll.node → prisma-engines/windows/query_engine-windows.dll.node
+```
+
+**폴더 구조 예시**:
+```
+fullstack-nextjs/
+├── apps/
+├── packages/
+├── prisma-engines/           ← 새로 생성
+│   └── windows/
+│       └── query_engine-windows.dll.node  ← 다운로드한 바이너리
+├── pnpm-workspace.yaml
+└── package.json
+```
+
+**Step 4: 환경 변수 설정**
+
+**방법 A: .env 파일에 추가 (프로젝트별 설정)**
+```bash
+# apps/api/.env에 추가
+PRISMA_QUERY_ENGINE_BINARY=../../prisma-engines/windows/query_engine-windows.dll.node
+```
+
+**방법 B: PowerShell 세션에서 설정 (임시)**
+```powershell
+# PowerShell에서 실행 (절대 경로 사용)
+$env:PRISMA_QUERY_ENGINE_BINARY="C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\query_engine-windows.dll.node"
+```
+
+**방법 C: Windows 환경 변수로 설정 (영구적)**
+```
+1. Win + R → sysdm.cpl 입력
+2. 고급 탭 → 환경 변수 클릭
+3. 사용자 변수 → 새로 만들기
+   - 변수 이름: PRISMA_QUERY_ENGINE_BINARY
+   - 변수 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\query_engine-windows.dll.node
+4. 확인 → PowerShell 재시작
+```
+
+**Step 5: Prisma 재생성 및 실행**
+```bash
+# PowerShell에서 실행
+cd apps/api
+
+# Prisma Client 재생성
 npx prisma generate
+
+# 마이그레이션 실행
 npx prisma migrate dev
 ```
 
-**검증 방법**:
-```bash
-# Prisma Client가 정상적으로 생성되었는지 확인
-npx prisma generate
+**성공 시 출력**:
+```
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": SQLite database "dev.db" at "file:./prisma/dev.db"
 
-# 결과:
-# ✔ Generated Prisma Client (version x.x.x) to .\node_modules\@prisma\client
+✔ Generated Prisma Client (version 5.22.0) to .\node_modules\@prisma\client
 ```
 
+**Step 6: Git 관리 (팀 공유 시)**
+
+**옵션 A: 바이너리를 Git에 포함 (팀 전체 사용)**
+```bash
+# .gitignore에서 prisma-engines 폴더 제외 (포함시키기)
+# 이미 .gitignore에 있다면 주석 처리하거나 예외 추가
+
+# Git에 추가
+git add prisma-engines/
+git commit -m "chore: Prisma 엔진 바이너리 추가 (Windows)"
+git push
+```
+
+**장점**: 팀원 모두 동일한 바이너리 사용, 다운로드 문제 없음
+**단점**: Git 저장소 크기 증가 (~30MB)
+
+**옵션 B: 바이너리를 Git에서 제외 (각자 다운로드)**
+```gitignore
+# .gitignore에 추가
+prisma-engines/
+```
+
+팀원들은 각자 다운로드 후 동일한 경로에 배치
+
+**검증 방법**:
+```bash
+# 환경 변수 확인
+echo $env:PRISMA_QUERY_ENGINE_BINARY
+
+# Prisma 버전 확인 (바이너리 경로 표시됨)
+npx prisma -v
+
+# 출력에서 다음 확인:
+# Query Engine (Node-API) : libquery-engine {hash} (at C:\...\prisma-engines\windows\query_engine-windows.dll.node)
+#                                                     ^^^ 사용자 지정 경로가 표시되어야 함
+```
+
+**팀 협업 시 README 추가 예시**:
+```markdown
+## Windows 환경 설정
+
+Prisma 엔진 다운로드 이슈로 인해 로컬 바이너리를 사용합니다.
+
+1. `apps/api/.env`에 다음 추가:
+   ```
+   PRISMA_QUERY_ENGINE_BINARY=../../prisma-engines/windows/query_engine-windows.dll.node
+   ```
+
+2. 바이너리가 없다면:
+   - `prisma-engines/windows/` 폴더 확인
+   - 없으면 [다운로드 가이드](docs/guides/LOCAL-SETUP.md#문제-6-windows-prisma-엔진-다운로드-실패) 참고
+```
+
+**주의사항**:
+- Prisma 버전을 업데이트하면 commit hash가 변경되므로 바이너리도 새로 다운로드해야 함
+- Mac/Linux 개발자와 협업 시 각 OS별 바이너리를 별도로 관리:
+  ```
+  prisma-engines/
+  ├── windows/
+  │   └── query_engine-windows.dll.node
+  ├── darwin/
+  │   └── libquery_engine-darwin.dylib.node
+  └── linux/
+      └── libquery_engine-linux.so.node
+  ```
+
 **참고**:
-- Windows에서는 Mac/Linux보다 바이너리 다운로드 문제가 자주 발생
-- 회사 네트워크인 경우 IT 팀에 binaries.prisma.sh 도메인 허용 요청
-- VPN 사용 시 VPN 끄고 시도해볼 것
+- 이 방법은 외부 다운로드가 완전히 차단된 환경에서 가장 효과적
+- 한 번만 설정하면 팀 전체가 동일한 바이너리 사용 가능
+- VPN 사용 시 VPN 끄고 다운로드 시도
 
 ---
 
