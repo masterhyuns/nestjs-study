@@ -437,6 +437,120 @@ NODE_ENV="development"  # ← production이 아니어야 함
 
 ---
 
+### ❌ 문제 6: [Windows] Prisma 엔진 다운로드 실패
+
+**에러**:
+```
+Downloading Prisma engines for Node-API for windows
+Error: request to https://binaries.prisma.sh/... failed
+```
+
+**원인**:
+- Windows 방화벽/프록시가 Prisma 엔진 다운로드 차단
+- 회사 네트워크 정책으로 외부 바이너리 다운로드 제한
+- OpenSSL 라이브러리 누락
+
+**해결 방법 1: 프록시 설정 (회사 네트워크인 경우)**
+```bash
+# PowerShell에서 실행
+$env:HTTP_PROXY="http://proxy.company.com:8080"
+$env:HTTPS_PROXY="http://proxy.company.com:8080"
+
+# 그 후 다시 실행
+npx prisma migrate dev
+```
+
+**해결 방법 2: Prisma 엔진 캐시 초기화**
+```bash
+# PowerShell에서 실행
+# 1. Prisma 엔진 캐시 폴더 삭제
+Remove-Item -Recurse -Force $env:USERPROFILE\.cache\prisma
+
+# 2. node_modules 삭제
+Remove-Item -Recurse -Force node_modules
+
+# 3. 재설치
+pnpm install
+
+# 4. Prisma Client 재생성
+npx prisma generate
+
+# 5. 마이그레이션 실행
+npx prisma migrate dev
+```
+
+**해결 방법 3: 방화벽 임시 해제**
+```
+1. Windows 보안 설정 열기
+2. 방화벽 및 네트워크 보호 → 개인 네트워크 → Windows Defender 방화벽 끄기
+3. npx prisma migrate dev 실행
+4. 방화벽 다시 켜기 (중요!)
+```
+
+**해결 방법 4: 환경 변수 설정 (엔진 다운로드 스킵)**
+```bash
+# PowerShell에서 실행
+# Prisma 엔진 다운로드 재시도 설정
+$env:PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING="1"
+
+# 다시 실행
+npx prisma generate
+npx prisma migrate dev
+```
+
+**해결 방법 5: Node.js 버전 확인 및 재설치**
+```bash
+# Node.js 버전 확인
+node -v
+
+# 18.x 또는 20.x LTS 버전 권장
+# https://nodejs.org/ 에서 최신 LTS 다운로드
+```
+
+**해결 방법 6: OpenSSL 설치 (Windows)**
+```bash
+# Chocolatey 사용 (관리자 권한 PowerShell)
+choco install openssl
+
+# 또는 수동 설치
+# https://slproweb.com/products/Win32OpenSSL.html
+# Win64 OpenSSL v3.x.x Light 다운로드
+```
+
+**해결 방법 7: 수동 엔진 다운로드 (최후의 수단)**
+```bash
+# 1. Prisma 버전 확인
+npx prisma -v
+# 예: prisma: 5.x.x
+
+# 2. 엔진 다운로드 URL (버전에 맞게 수정)
+# https://binaries.prisma.sh/all_commits/{commit_hash}/windows/query-engine.exe.gz
+# {commit_hash}는 npx prisma -v 결과에서 확인
+
+# 3. 다운로드 후 압축 해제하여 아래 경로에 배치
+# C:\Users\{사용자}\.cache\prisma\{version}\windows\
+
+# 4. 다시 실행
+npx prisma generate
+npx prisma migrate dev
+```
+
+**검증 방법**:
+```bash
+# Prisma Client가 정상적으로 생성되었는지 확인
+npx prisma generate
+
+# 결과:
+# ✔ Generated Prisma Client (version x.x.x) to .\node_modules\@prisma\client
+```
+
+**참고**:
+- Windows에서는 Mac/Linux보다 바이너리 다운로드 문제가 자주 발생
+- 회사 네트워크인 경우 IT 팀에 binaries.prisma.sh 도메인 허용 요청
+- VPN 사용 시 VPN 끄고 시도해볼 것
+
+---
+
 ## 11. 다음 단계
 
 개발 환경 세팅이 완료되었습니다! 🎉
