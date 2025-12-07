@@ -542,31 +542,73 @@ npx prisma -v
 
 **Step 2: 엔진 바이너리 다운로드**
 
+**중요**: Prisma는 3가지 엔진을 사용합니다. **모두 다운로드해야 합니다.**
+1. **query-engine** (Query Engine): 데이터베이스 쿼리 실행
+2. **schema-engine** (Schema Engine): 마이그레이션 실행 (`migrate dev`)
+3. **introspection-engine** (선택): 기존 DB에서 스키마 생성 (`prisma db pull`)
+
 **방법 A: 브라우저에서 다운로드 (VPN 끄고 시도)**
+
+**① query-engine 다운로드**
 ```
-1. URL 형식:
+1. URL:
    https://binaries.prisma.sh/all_commits/{commit_hash}/windows/query_engine-windows.dll.node.gz
 
-2. 예시 (위 해시값 사용):
+2. 예시:
    https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/query_engine-windows.dll.node.gz
 
-3. 다운로드 후 압축 해제 (7-Zip 사용)
-   - 다운로드한 .gz 파일을 7-Zip으로 압축 해제
-   - 결과: query_engine-windows.dll.node 파일 생성
+3. 압축 해제 → query_engine-windows.dll.node
 ```
 
-**방법 B: PowerShell로 다운로드 (고급)**
+**② schema-engine 다운로드 (마이그레이션용)**
+```
+1. URL:
+   https://binaries.prisma.sh/all_commits/{commit_hash}/windows/schema-engine-windows.exe.gz
+
+2. 예시:
+   https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/schema-engine-windows.exe.gz
+
+3. 압축 해제 → schema-engine-windows.exe
+```
+
+**③ introspection-engine 다운로드 (선택 사항)**
+```
+1. URL:
+   https://binaries.prisma.sh/all_commits/{commit_hash}/windows/introspection-engine-windows.exe.gz
+
+2. 예시:
+   https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/introspection-engine-windows.exe.gz
+
+3. 압축 해제 → introspection-engine-windows.exe
+```
+
+**압축 해제 방법**:
+- 7-Zip 사용: 우클릭 → 7-Zip → Extract Here
+- 또는 PowerShell: `gzip -d 파일명.gz`
+
+**방법 B: PowerShell로 일괄 다운로드 (고급)**
 ```powershell
 # PowerShell에서 실행 (commit_hash 부분을 실제 값으로 변경)
 $commitHash = "605197351a3c8bdd595af2d2a9bc3025bca48ea2"  # npx prisma -v에서 확인한 값
-$url = "https://binaries.prisma.sh/all_commits/$commitHash/windows/query_engine-windows.dll.node.gz"
-$outputPath = "$env:USERPROFILE\Downloads\query_engine-windows.dll.node.gz"
+$downloadDir = "$env:USERPROFILE\Downloads\prisma-engines"
 
-# 다운로드
-Invoke-WebRequest -Uri $url -OutFile $outputPath
+# 다운로드 폴더 생성
+New-Item -ItemType Directory -Force -Path $downloadDir
 
-# 압축 해제 (PowerShell 5.0+)
-gzip -d $outputPath  # 또는 7-Zip 사용
+# 1. query-engine 다운로드
+$queryUrl = "https://binaries.prisma.sh/all_commits/$commitHash/windows/query_engine-windows.dll.node.gz"
+Invoke-WebRequest -Uri $queryUrl -OutFile "$downloadDir\query_engine-windows.dll.node.gz"
+
+# 2. schema-engine 다운로드
+$schemaUrl = "https://binaries.prisma.sh/all_commits/$commitHash/windows/schema-engine-windows.exe.gz"
+Invoke-WebRequest -Uri $schemaUrl -OutFile "$downloadDir\schema-engine-windows.exe.gz"
+
+# 3. introspection-engine 다운로드 (선택)
+$introUrl = "https://binaries.prisma.sh/all_commits/$commitHash/windows/introspection-engine-windows.exe.gz"
+Invoke-WebRequest -Uri $introUrl -OutFile "$downloadDir\introspection-engine-windows.exe.gz"
+
+Write-Host "다운로드 완료: $downloadDir"
+Write-Host "7-Zip으로 모든 .gz 파일을 압축 해제하세요."
 ```
 
 **Step 3: 엔진 파일을 프로젝트 내부에 저장 (팀 공유용)**
@@ -577,8 +619,10 @@ mkdir prisma-engines
 cd prisma-engines
 mkdir windows
 
-# 다운로드한 파일을 여기에 복사
-# query_engine-windows.dll.node → prisma-engines/windows/query_engine-windows.dll.node
+# 다운로드 & 압축 해제한 파일을 여기에 복사
+# - query_engine-windows.dll.node
+# - schema-engine-windows.exe
+# - introspection-engine-windows.exe (선택)
 ```
 
 **폴더 구조 예시**:
@@ -588,32 +632,58 @@ fullstack-nextjs/
 ├── packages/
 ├── prisma-engines/           ← 새로 생성
 │   └── windows/
-│       └── query_engine-windows.dll.node  ← 다운로드한 바이너리
+│       ├── query_engine-windows.dll.node      ← Query Engine (필수)
+│       ├── schema-engine-windows.exe          ← Schema Engine (필수)
+│       └── introspection-engine-windows.exe   ← Introspection Engine (선택)
 ├── pnpm-workspace.yaml
 └── package.json
 ```
 
 **Step 4: 환경 변수 설정**
 
-**방법 A: .env 파일에 추가 (프로젝트별 설정)**
+**중요**: 3가지 엔진 모두 환경 변수로 지정해야 합니다.
+
+**방법 A: .env 파일에 추가 (프로젝트별 설정) - 추천**
 ```bash
 # apps/api/.env에 추가
+
+# Query Engine (데이터베이스 쿼리 실행)
 PRISMA_QUERY_ENGINE_BINARY=../../prisma-engines/windows/query_engine-windows.dll.node
+
+# Schema Engine (마이그레이션 실행)
+PRISMA_SCHEMA_ENGINE_BINARY=../../prisma-engines/windows/schema-engine-windows.exe
+
+# Introspection Engine (선택 사항: prisma db pull 사용 시)
+PRISMA_INTROSPECTION_ENGINE_BINARY=../../prisma-engines/windows/introspection-engine-windows.exe
 ```
 
 **방법 B: PowerShell 세션에서 설정 (임시)**
 ```powershell
 # PowerShell에서 실행 (절대 경로 사용)
-$env:PRISMA_QUERY_ENGINE_BINARY="C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\query_engine-windows.dll.node"
+$basePath = "C:\Users\YourName\fullstack-nextjs\prisma-engines\windows"
+$env:PRISMA_QUERY_ENGINE_BINARY="$basePath\query_engine-windows.dll.node"
+$env:PRISMA_SCHEMA_ENGINE_BINARY="$basePath\schema-engine-windows.exe"
+$env:PRISMA_INTROSPECTION_ENGINE_BINARY="$basePath\introspection-engine-windows.exe"
 ```
 
 **방법 C: Windows 환경 변수로 설정 (영구적)**
 ```
 1. Win + R → sysdm.cpl 입력
 2. 고급 탭 → 환경 변수 클릭
-3. 사용자 변수 → 새로 만들기
-   - 변수 이름: PRISMA_QUERY_ENGINE_BINARY
-   - 변수 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\query_engine-windows.dll.node
+3. 사용자 변수 → 새로 만들기 (3개 추가)
+
+   변수 1:
+   - 이름: PRISMA_QUERY_ENGINE_BINARY
+   - 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\query_engine-windows.dll.node
+
+   변수 2:
+   - 이름: PRISMA_SCHEMA_ENGINE_BINARY
+   - 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\schema-engine-windows.exe
+
+   변수 3:
+   - 이름: PRISMA_INTROSPECTION_ENGINE_BINARY
+   - 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\introspection-engine-windows.exe
+
 4. 확인 → PowerShell 재시작
 ```
 
@@ -663,15 +733,26 @@ prisma-engines/
 
 **검증 방법**:
 ```bash
-# 환경 변수 확인
-echo $env:PRISMA_QUERY_ENGINE_BINARY
+# PowerShell에서 실행
 
-# Prisma 버전 확인 (바이너리 경로 표시됨)
+# 1. 환경 변수 확인 (3개 모두)
+echo $env:PRISMA_QUERY_ENGINE_BINARY
+echo $env:PRISMA_SCHEMA_ENGINE_BINARY
+echo $env:PRISMA_INTROSPECTION_ENGINE_BINARY
+
+# 2. Prisma 버전 확인 (바이너리 경로 표시됨)
 npx prisma -v
 
-# 출력에서 다음 확인:
+# 출력 예시:
 # Query Engine (Node-API) : libquery-engine {hash} (at C:\...\prisma-engines\windows\query_engine-windows.dll.node)
 #                                                     ^^^ 사용자 지정 경로가 표시되어야 함
+
+# 3. 마이그레이션 테스트 (schema-engine 사용)
+npx prisma migrate dev
+
+# 성공 시:
+# ✔ Generated Prisma Client
+# Your database is now in sync with your schema
 ```
 
 **팀 협업 시 README 추가 예시**:
@@ -680,13 +761,15 @@ npx prisma -v
 
 Prisma 엔진 다운로드 이슈로 인해 로컬 바이너리를 사용합니다.
 
-1. `apps/api/.env`에 다음 추가:
+1. `apps/api/.env`에 다음 3줄 추가:
    ```
    PRISMA_QUERY_ENGINE_BINARY=../../prisma-engines/windows/query_engine-windows.dll.node
+   PRISMA_SCHEMA_ENGINE_BINARY=../../prisma-engines/windows/schema-engine-windows.exe
+   PRISMA_INTROSPECTION_ENGINE_BINARY=../../prisma-engines/windows/introspection-engine-windows.exe
    ```
 
 2. 바이너리가 없다면:
-   - `prisma-engines/windows/` 폴더 확인
+   - `prisma-engines/windows/` 폴더 확인 (3개 파일 필요)
    - 없으면 [다운로드 가이드](docs/guides/LOCAL-SETUP.md#문제-6-windows-prisma-엔진-다운로드-실패) 참고
 ```
 
@@ -696,11 +779,17 @@ Prisma 엔진 다운로드 이슈로 인해 로컬 바이너리를 사용합니�
   ```
   prisma-engines/
   ├── windows/
-  │   └── query_engine-windows.dll.node
-  ├── darwin/
-  │   └── libquery_engine-darwin.dylib.node
+  │   ├── query_engine-windows.dll.node
+  │   ├── schema-engine-windows.exe
+  │   └── introspection-engine-windows.exe
+  ├── darwin/  (Mac)
+  │   ├── libquery_engine-darwin.dylib.node
+  │   ├── schema-engine-darwin
+  │   └── introspection-engine-darwin
   └── linux/
-      └── libquery_engine-linux.so.node
+      ├── libquery_engine-linux.so.node
+      ├── schema-engine-linux
+      └── introspection-engine-linux
   ```
 
 **참고**:
