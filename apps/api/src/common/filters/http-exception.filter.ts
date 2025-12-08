@@ -45,7 +45,6 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
 import { ApiErrorResponse } from '../dto/api-response.dto';
 import { ErrorCode, ErrorMessage } from '../constants/error-codes';
 import { StructuredLoggerService } from '../logger/structured-logger.service';
@@ -93,28 +92,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
     }
     // ========================================================================
-    // 2. Prisma Exception 처리
+    // 2. 데이터베이스 에러 처리 (SQLite/Kysely)
     // ========================================================================
 
     /**
-     * 왜 Prisma 에러를 특별히 처리하는가?
-     * - P2002 (Unique): 사용자에게 "중복 이메일" 같은 친절한 메시지
-     * - P2025 (Not Found): 404 Not Found로 적절한 HTTP 상태 코드
-     * - 보안: DB 스키마 정보 노출 방지 (개발 환경에서만 상세 정보)
+     * @why-database-error-handling
+     * Kysely는 Prisma처럼 자체 에러 타입을 제공하지 않습니다.
+     * - SQLite 에러는 일반 Error 객체로 전달됨
+     * - 필요 시 error.message를 파싱하여 처리 가능
+     * - 현재는 일반 에러로 처리 (500 Internal Server Error)
+     *
+     * @future
+     * 향후 필요 시 SQLite 에러 코드별 처리 추가:
+     * - SQLITE_CONSTRAINT: Unique/FK 제약 위반
+     * - SQLITE_BUSY: DB 락
+     * - SQLITE_NOTFOUND: 레코드 없음
      */
-    else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      const prismaError = this.handlePrismaError(exception);
-      status = prismaError.status;
-      errorCode = prismaError.code;
-      message = prismaError.message;
-
-      /**
-       * 왜 개발/프로덕션을 분기하는가?
-       * - 개발: 상세한 에러 정보로 빠른 디버깅 (error.meta, stack trace)
-       * - 프로덕션: 최소한의 정보만 노출 (보안, 해커에게 DB 구조 노출 방지)
-       */
-      details = process.env.NODE_ENV === 'development' ? prismaError.details : null;
-    }
 
     // ========================================================================
     // 3. 알 수 없는 예외 (Fallback)
@@ -192,187 +185,4 @@ export class HttpExceptionFilter implements ExceptionFilter {
     }
   }
 
-  /**
-   * Prisma 에러 처리
-   *
-   * @description
-   * Prisma 에러 코드를 애플리케이션 에러로 변환
-   *
-   * @why-auto-convert
-   * Prisma 에러를 자동 변환하는 이유:
-   * 1. **클라이언트 친화적**: P2002 → "이미 존재하는 이메일" (이해하기 쉬움)
-   * 2. **HTTP 시맨틱**: P2025 → 404 Not Found (RESTful)
-   * 3. **보안**: DB 내부 구조 노출 방지 (프로덕션에서는 최소 정보)
-   * 4. **자동화**: Service에서 Prisma 에러 처리 불필요
-   * 5. **일관성**: 모든 DB 에러가 동일한 형식
-   *
-   * @reference
-   * Prisma Error Reference: https://www.prisma.io/docs/reference/api-reference/error-reference
-   *
-   * @common-errors
-   * | Prisma Code | HTTP Status | 의미 | 예시 |
-   * |-------------|-------------|------|------|
-   * | P2002 | 409 Conflict | Unique 제약 위반 | 중복 이메일 |
-   * | P2025 | 404 Not Found | 레코드 없음 | 존재하지 않는 사용자 |
-   * | P2003 | 400 Bad Request | FK 제약 위반 | 존재하지 않는 workspace |
-   * | P1001 | 503 Service Unavailable | DB 연결 실패 | DB 서버 다운 |
-   */
-  private handlePrismaError(error: Prisma.PrismaClientKnownRequestError): {
-    status: number;
-    code: string;
-    message: string;
-    details: any;
-  } {
-    switch (error.code) {
-      // ======================================================================
-      // P2002: Unique constraint failed
-      // ======================================================================
-
-      /**
-       * 왜 409 Conflict를 사용하는가?
-       * - 400 Bad Request: 요청 형식이 잘못됨 (DTO 검증 실패)
-       * - 409 Conflict: 요청은 올바르나 현재 상태와 충돌 ✅
-       * - 422 Unprocessable Entity: 의미론적 오류 (사용 가능하나 덜 명확)
-       *
-       * @example
-       * - 이메일 중복 가입 시도
-       * - workspace slug 중복
-       */
-      case 'P2002': {
-        const target = (error.meta?.target as string[]) || [];
-        return {
-          status: HttpStatus.CONFLICT,
-          code: ErrorCode.DB_UNIQUE_CONSTRAINT,
-          message: `이미 존재하는 데이터입니다 (${target.join(', ')})`,
-          details: { fields: target }, // 어떤 필드가 중복인지
-        };
-      }
-
-      // ======================================================================
-      // P2025: Record not found
-      // ======================================================================
-
-      /**
-       * 왜 404 Not Found를 사용하는가?
-       * - RESTful API 표준: 리소스가 없으면 404
-       * - 클라이언트 경험: 명확한 의미 전달
-       *
-       * @example
-       * - 존재하지 않는 사용자 조회
-       * - 삭제된 프로젝트 접근
-       */
-      case 'P2025':
-        return {
-          status: HttpStatus.NOT_FOUND,
-          code: ErrorCode.COMMON_NOT_FOUND,
-          message: '데이터를 찾을 수 없습니다',
-          details: error.meta, // Prisma가 제공하는 추가 정보
-        };
-
-      // ======================================================================
-      // P2003: Foreign key constraint failed
-      // ======================================================================
-
-      /**
-       * 왜 400 Bad Request를 사용하는가?
-       * - 클라이언트 오류: 존재하지 않는 ID 전달
-       * - 요청 수정 필요: 올바른 ID로 재시도 필요
-       *
-       * @example
-       * - 없는 workspaceId로 프로젝트 생성
-       * - 없는 userId로 태스크 할당
-       */
-      case 'P2003':
-        return {
-          status: HttpStatus.BAD_REQUEST,
-          code: ErrorCode.COMMON_BAD_REQUEST,
-          message: '연관된 데이터가 존재하지 않습니다',
-          details: error.meta,
-        };
-
-      // ======================================================================
-      // P1001, P1002: Database connection error
-      // ======================================================================
-
-      /**
-       * 왜 503 Service Unavailable을 사용하는가?
-       * - 500 Internal Server Error: 애플리케이션 코드 오류
-       * - 503 Service Unavailable: 의존하는 서비스 장애 ✅
-       * - Retry 가능: 클라이언트가 나중에 재시도 가능
-       *
-       * @example
-       * - PostgreSQL 서버 다운
-       * - 네트워크 장애
-       * - 연결 풀 고갈
-       */
-      case 'P1001':
-      case 'P1002':
-        return {
-          status: HttpStatus.SERVICE_UNAVAILABLE,
-          code: ErrorCode.DB_CONNECTION_ERROR,
-          message: '데이터베이스 연결 오류',
-          details: process.env.NODE_ENV === 'development' ? error.meta : null,
-        };
-
-      // ======================================================================
-      // 기타 Prisma 에러 (예상치 못한 DB 에러)
-      // ======================================================================
-
-      /**
-       * 왜 500 Internal Server Error를 사용하는가?
-       * - 예상하지 못한 에러: P2004, P2014 등
-       * - 서버 책임: 클라이언트가 할 수 있는 것이 없음
-       * - 개발자 조치 필요: 로그 확인 및 수정
-       *
-       * @monitoring
-       * 이 에러가 발생하면 즉시 알림 발송 (Slack, 이메일)
-       */
-      default:
-        return {
-          status: HttpStatus.INTERNAL_SERVER_ERROR,
-          code: ErrorCode.COMMON_INTERNAL_SERVER_ERROR,
-          message: '데이터베이스 오류가 발생했습니다',
-          details: process.env.NODE_ENV === 'development' ? error : null,
-        };
-    }
-  }
-
-  /**
-   * @migration-note
-   * 기존의 logError() 메서드는 StructuredLoggerService.logError()로 대체되었습니다.
-   *
-   * **변경 사항:**
-   * - 위치: apps/api/src/common/logger/structured-logger.service.ts
-   * - 장점:
-   *   1. LoggingInterceptor와 동일한 로그 포맷
-   *   2. 타입 안전성 (HttpErrorLog 인터페이스)
-   *   3. 자동 로그 레벨 결정 (4xx: WARN, 5xx: ERROR)
-   *   4. 자동 Stack Trace 처리
-   *   5. 환경별 민감 정보 제거
-   *
-   * **호출 방법:**
-   * ```typescript
-   * this.logger.logError(
-   *   {
-   *     requestId,
-   *     method,
-   *     url,
-   *     status,
-   *     errorCode,
-   *     message,
-   *     stack,
-   *     body,
-   *     query,
-   *     params,
-   *   },
-   *   exception,
-   * );
-   * ```
-   *
-   * @future 향후 확장
-   * StructuredLoggerService에서 처리:
-   * - Sentry, DataDog 연동
-   * - 에러 메트릭 수집
-   * - 민감 정보 자동 마스킹
-   */
 }

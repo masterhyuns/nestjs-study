@@ -21,9 +21,8 @@ import { HealthController } from './health.controller';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { throttlerConfig } from './common/config/throttler.config';
 import { validate } from './common/config/env.validation';
-import { DatabaseModule } from './shared/database/database.module';
+import { DatabaseModule } from './infrastructure/database/database.module';
 import { LoggerModule } from './common/logger/logger.module';
-import { UserModule } from './modules/user/user.module';
 
 /**
  * 루트 모듈
@@ -77,11 +76,11 @@ import { UserModule } from './modules/user/user.module';
     LoggerModule,
 
     // ==========================================================================
-    // 도메인 모듈
+    // 도메인 모듈 (향후 추가)
     // ==========================================================================
 
     /**
-     * UserModule - 사용자 관리
+     * @future UserModule - 사용자 관리
      *
      * @provides
      * - 회원가입: POST /api/v1/users/register
@@ -95,13 +94,13 @@ import { UserModule } from './modules/user/user.module';
      * - 테스트 기준: 가장 단순하여 아키텍처 검증에 적합
      *
      * @dependencies
-     * - DatabaseModule: Prisma를 통한 DB 접근
+     * - DatabaseModule: Kysely를 통한 DB 접근
      * - ConfigModule: 환경 변수 (bcrypt rounds 등)
      *
      * @exports
      * - UserService: AuthModule, ProjectModule 등에서 사용
      */
-    UserModule,
+    // UserModule,
 
     // ==========================================================================
     // 향후 추가될 도메인 모듈

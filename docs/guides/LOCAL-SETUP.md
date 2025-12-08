@@ -68,7 +68,7 @@ pnpm install
 ```
 
 **설치되는 패키지**:
-- API 서버 의존성 (NestJS, Prisma 등)
+- API 서버 의존성 (NestJS, Kysely, better-sqlite3 등)
 - 프론트엔드 의존성 (React, Next.js 등)
 - 공통 패키지 (types, theme 등)
 
@@ -95,7 +95,7 @@ cp .env.example .env
 # =============================================================================
 # 데이터베이스 (SQLite - Docker 불필요)
 # =============================================================================
-DATABASE_URL="file:./prisma/dev.db"
+DATABASE_URL="file:./database/dev.db"
 
 # =============================================================================
 # JWT (보안)
@@ -131,7 +131,7 @@ RATE_LIMIT_MAX=100
 
 ---
 
-## 5. 데이터베이스 초기화 (Prisma)
+## 5. 데이터베이스 초기화 (Kysely + SQLite)
 
 ### 5️⃣ 마이그레이션 실행
 
@@ -139,58 +139,78 @@ RATE_LIMIT_MAX=100
 # apps/api 디렉토리로 이동 (아직 안 했다면)
 cd apps/api
 
-# Prisma 마이그레이션 실행
-npx prisma migrate dev
+# Kysely 마이그레이션 실행
+pnpm db:migrate
 ```
 
 **실행 결과**:
 ```
-Environment variables loaded from .env
-Prisma schema loaded from prisma/schema.prisma
-Datasource "db": SQLite database "dev.db" at "file:./prisma/dev.db"
-
-SQLite database dev.db created at file:./prisma/dev.db
-
-Applying migration `20251205071831_init`
-
-The following migration(s) have been applied:
-migrations/
-  └─ 20251205071831_init/
-    └─ migration.sql
-
-Your database is now in sync with your schema.
-
-✔ Generated Prisma Client
+[Migration] Starting migrations...
+[Migration] Database path: ./database/dev.db
+[Migration] Already executed: 0 migrations
+[Migration] Pending migrations: 1
+[Migration] Executing: 001_initial_schema.sql
+[Migration] ✓ Success: 001_initial_schema.sql
+[Migration] ✓ All migrations completed successfully!
 ```
 
 **생성되는 파일**:
-- `apps/api/prisma/dev.db` ← SQLite 데이터베이스 파일
-- `apps/api/prisma/dev.db-journal` ← 임시 파일 (자동 생성/삭제)
+- `apps/api/database/dev.db` ← SQLite 데이터베이스 파일
+- `apps/api/database/dev.db-journal` ← 임시 파일 (자동 생성/삭제)
 
 **확인 방법**:
 ```bash
 # SQLite 파일이 생성되었는지 확인
-ls -lah apps/api/prisma/dev.db
+ls -lah apps/api/database/dev.db
 
 # 출력 예시:
-# -rw-r--r--  1 user  staff   20K 12월  5 16:18 dev.db
+# -rw-r--r--  1 user  staff   40K 12월  8 10:30 dev.db
 ```
 
-### 6️⃣ Prisma Studio로 DB 확인 (선택 사항)
+### 6️⃣ SQLite DB 확인 (선택 사항)
 
+Kysely는 Prisma Studio와 같은 내장 GUI가 없으므로, 외부 SQLite 뷰어를 사용합니다:
+
+**추천 도구**:
+
+**1️⃣ DB Browser for SQLite (무료, GUI)**
 ```bash
-# Prisma Studio 실행 (웹 기반 DB GUI)
-npx prisma studio
+# 다운로드: https://sqlitebrowser.org/
+# 설치 후 database/dev.db 파일 열기
+```
+- Windows/Mac/Linux 모두 지원
+- 테이블 구조 확인, 데이터 조회/수정 가능
+- SQL 쿼리 실행 가능
+
+**2️⃣ VS Code Extension (개발 중 편리)**
+```
+VS Code Extensions:
+- SQLite Viewer (alexcvzz.vscode-sqlite)
+- SQLite (qwtel.sqlite-viewer)
+
+사용법:
+1. Extension 설치
+2. database/dev.db 파일 우클릭 → "Open Database"
 ```
 
-**실행 결과**:
-- 브라우저에서 `http://localhost:5555` 자동으로 열림
-- GUI로 테이블 구조 확인 가능
-- 데이터 조회/추가/수정/삭제 가능
+**3️⃣ CLI (터미널에서)**
+```bash
+# SQLite CLI 설치
+brew install sqlite  # Mac
+choco install sqlite # Windows
 
-**Spring Boot의 H2 Console과 유사한 역할**
+# 데이터베이스 접속
+sqlite3 apps/api/database/dev.db
 
-**종료 방법**: `Ctrl + C`
+# 테이블 목록 조회
+.tables
+
+# 스키마 확인
+.schema users
+
+# 종료
+.quit
+```
 
 ---
 
@@ -218,7 +238,7 @@ pnpm --filter @repo/api start:dev
 
 ✅ 적용된 전역 설정:
    1. Request ID Middleware (요청 추적)
-   2. Exception Filter (에러 처리 + Prisma 에러 자동 변환)
+   2. Exception Filter (에러 처리 + 구조화된 로깅)
    3. Validation Pipe (입력 검증 + class-validator)
    4. Transform Interceptor (응답 포맷 ApiSuccessResponse)
    5. Logging Interceptor (요청/응답 로깅 + 민감정보 제거)
@@ -282,35 +302,40 @@ pnpm dev
 - [ ] 프로젝트 클론됨
 - [ ] `pnpm install` 실행됨
 - [ ] `apps/api/.env` 파일 생성됨
-- [ ] `npx prisma migrate dev` 실행됨
-- [ ] `apps/api/prisma/dev.db` 파일 생성됨
+- [ ] `pnpm db:migrate` 실행됨
+- [ ] `apps/api/database/dev.db` 파일 생성됨
 - [ ] `pnpm start:dev` 실행됨
 - [ ] `http://localhost:3000/health` 응답 확인됨
 - [ ] `http://localhost:3000/api/v1/docs` Swagger 확인됨
 
 ---
 
-## 9. Prisma 파일 관리 (Git)
+## 9. Kysely 파일 관리 (Git)
 
 ### ✅ Git에 포함해야 하는 파일
 
 ```
-apps/api/prisma/
-├── schema.prisma           ✅ Git에 포함 (DB 스키마 정의)
-└── migrations/             ✅ Git에 포함 (마이그레이션 히스토리)
-    ├── 20251205071831_init/
-    │   └── migration.sql
-    └── migration_lock.toml
+apps/api/
+├── database/
+│   ├── migrate.ts                    ✅ Git에 포함 (마이그레이션 실행 스크립트)
+│   └── migrations/                   ✅ Git에 포함 (마이그레이션 히스토리)
+│       ├── 001_initial_schema.sql
+│       └── 002_add_new_feature.sql
+└── src/infrastructure/database/
+    ├── database.ts                   ✅ Git에 포함 (DB 연결 설정)
+    ├── database.module.ts            ✅ Git에 포함 (NestJS 모듈)
+    └── types.ts                      ✅ Git에 포함 (타입 정의)
 ```
 
 **이유**:
-- `schema.prisma`: 데이터베이스 구조 정의 (팀 전체 공유)
-- `migrations/`: 데이터베이스 변경 히스토리 (버전 관리)
+- `types.ts`: 데이터베이스 타입 정의 (타입 안전성 보장)
+- `migrations/`: SQL 마이그레이션 파일 (버전 관리)
+- `migrate.ts`: 마이그레이션 실행 로직 (팀 전체 공유)
 
 ### ❌ Git에 포함하지 말아야 하는 파일
 
 ```
-apps/api/prisma/
+apps/api/database/
 ├── dev.db                  ❌ Git 무시 (로컬 DB 파일)
 ├── dev.db-journal          ❌ Git 무시 (임시 파일)
 ├── dev.db-shm              ❌ Git 무시 (공유 메모리 파일)
@@ -325,7 +350,7 @@ apps/api/prisma/
 ### .gitignore 설정 (이미 적용됨)
 
 ```gitignore
-# apps/api/prisma/ 내부 파일들
+# SQLite 데이터베이스 파일들
 *.db
 *.db-journal
 *.db-shm
@@ -352,7 +377,7 @@ pnpm install
 
 ---
 
-### ❌ 문제 2: `npx prisma migrate dev` 실패
+### ❌ 문제 2: `pnpm db:migrate` 실패
 
 **에러**:
 ```
@@ -366,10 +391,10 @@ ls apps/api/.env
 
 # 없다면 생성
 cd apps/api
-echo 'DATABASE_URL="file:./prisma/dev.db"' > .env
+echo 'DATABASE_URL="file:./database/dev.db"' > .env
 
 # 다시 실행
-npx prisma migrate dev
+pnpm db:migrate
 ```
 
 ---
@@ -399,26 +424,7 @@ PORT=3001
 
 ---
 
-### ❌ 문제 4: SQLite 파일이 생성되지 않음
-
-**증상**:
-```
-PrismaClientInitializationError: Can't reach database server
-```
-
-**해결**:
-```bash
-# Prisma 클라이언트 재생성
-cd apps/api
-npx prisma generate
-
-# 마이그레이션 다시 실행
-npx prisma migrate dev
-```
-
----
-
-### ❌ 문제 5: Swagger가 안 열림
+### ❌ 문제 4: Swagger가 안 열림
 
 **증상**:
 ```
@@ -435,437 +441,6 @@ http://localhost:3000/api/v1/docs 404 Not Found
 NODE_ENV="development"  # ← production이 아니어야 함
 ```
 
----
-
-### ❌ 문제 6: [Windows] Prisma 엔진 다운로드 실패
-
-**에러**:
-```
-Downloading Prisma engines for Node-API for windows
-Error: request to https://binaries.prisma.sh/... failed
-```
-
-**원인**:
-- Windows 방화벽/프록시가 Prisma 엔진 다운로드 차단
-- 회사 네트워크 정책으로 외부 바이너리 다운로드 제한
-- OpenSSL 라이브러리 누락
-
-**해결 방법 1: 프록시 설정 (회사 네트워크인 경우)**
-```bash
-# PowerShell에서 실행
-$env:HTTP_PROXY="http://proxy.company.com:8080"
-$env:HTTPS_PROXY="http://proxy.company.com:8080"
-
-# 그 후 다시 실행
-npx prisma migrate dev
-```
-
-**해결 방법 2: Prisma 엔진 캐시 초기화**
-```bash
-# PowerShell에서 실행
-# 1. Prisma 엔진 캐시 폴더 삭제
-Remove-Item -Recurse -Force $env:USERPROFILE\.cache\prisma
-
-# 2. node_modules 삭제
-Remove-Item -Recurse -Force node_modules
-
-# 3. 재설치
-pnpm install
-
-# 4. Prisma Client 재생성
-npx prisma generate
-
-# 5. 마이그레이션 실행
-npx prisma migrate dev
-```
-
-**해결 방법 3: 방화벽 임시 해제**
-```
-1. Windows 보안 설정 열기
-2. 방화벽 및 네트워크 보호 → 개인 네트워크 → Windows Defender 방화벽 끄기
-3. npx prisma migrate dev 실행
-4. 방화벽 다시 켜기 (중요!)
-```
-
-**해결 방법 4: 환경 변수 설정 (엔진 다운로드 스킵)**
-```bash
-# PowerShell에서 실행
-# Prisma 엔진 다운로드 재시도 설정
-$env:PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING="1"
-
-# 다시 실행
-npx prisma generate
-npx prisma migrate dev
-```
-
-**해결 방법 5: Node.js 버전 확인 및 재설치**
-```bash
-# Node.js 버전 확인
-node -v
-
-# 18.x 또는 20.x LTS 버전 권장
-# https://nodejs.org/ 에서 최신 LTS 다운로드
-```
-
-**해결 방법 6: OpenSSL 설치 (Windows)**
-```bash
-# Chocolatey 사용 (관리자 권한 PowerShell)
-choco install openssl
-
-# 또는 수동 설치
-# https://slproweb.com/products/Win32OpenSSL.html
-# Win64 OpenSSL v3.x.x Light 다운로드
-```
-
-**해결 방법 7: 로컬 엔진 바이너리 사용 (PRISMA_QUERY_ENGINE_BINARY) ⭐ 추천**
-
-이 방법은 엔진을 미리 다운로드해서 로컬 파일로 바라보게 설정합니다.
-**팀 전체가 동일한 바이너리를 공유할 수 있어 가장 안정적입니다.**
-
-**Step 1: Prisma 버전 및 엔진 commit hash 확인**
-
-**❗ 주의**: `npx prisma -v`를 실행하면 엔진 다운로드를 시도하므로 에러가 발생할 수 있습니다.
-**아래 대체 방법을 먼저 시도하세요.**
-
-**방법 A: package.json에서 Prisma 버전 확인 (추천)**
-```bash
-# PowerShell에서 실행
-cd apps/api
-cat package.json | Select-String -Pattern "prisma"
-
-# 또는
-Get-Content package.json | Select-String "prisma"
-
-# 출력 예시:
-# "prisma": "^5.22.0",
-# "@prisma/client": "^5.22.0"
-```
-
-**방법 B: node_modules에서 commit hash 직접 확인**
-```bash
-# PowerShell에서 실행
-cd apps/api
-
-# Prisma Client 설치되어 있다면
-cat node_modules\.prisma\client\package.json | Select-String "prismaCommit"
-
-# 또는
-Get-Content node_modules\.prisma\client\libquery_engine-windows.dll.node.txt 2>$null
-
-# 출력 예시:
-# "prismaCommit": "605197351a3c8bdd595af2d2a9bc3025bca48ea2"
-```
-
-**방법 C: npm에서 engines-version 패키지 확인**
-
-```bash
-# PowerShell에서 실행
-cd apps/api
-
-# @prisma/engines-version 패키지에서 commit hash 확인
-cat node_modules\@prisma\engines-version\package.json | Select-String "version"
-
-# 또는 engines 패키지 확인
-cat node_modules\@prisma\engines\package.json
-```
-
-**방법 D: 이 프로젝트의 정확한 commit hash (Prisma 6.1.0) ⭐**
-
-**이 프로젝트는 Prisma 6.1.0을 사용합니다.**
-
-**Prisma 6.1.0의 엔진 commit hash**:
-```
-11f085a2012c0f4778414c8db2651556ee0ef959
-```
-
-**다운로드 URL**:
-```bash
-# query-engine
-https://binaries.prisma.sh/all_commits/11f085a2012c0f4778414c8db2651556ee0ef959/windows/query_engine-windows.dll.node.gz
-
-# schema-engine
-https://binaries.prisma.sh/all_commits/11f085a2012c0f4778414c8db2651556ee0ef959/windows/schema-engine-windows.exe.gz
-
-# introspection-engine
-https://binaries.prisma.sh/all_commits/11f085a2012c0f4778414c8db2651556ee0ef959/windows/introspection-engine-windows.exe.gz
-```
-
-**다른 버전을 사용하는 경우**:
-1. npm registry에서 확인: `https://registry.npmjs.org/@prisma/engines/{버전}`
-2. 버전 필드에서 commit hash 추출 (예: `6.1.0-21.{commit_hash}`)
-
-**방법 E: 엔진 다운로드 스킵하고 실행 (임시)**
-```powershell
-# PowerShell에서 실행
-$env:PRISMA_SKIP_POSTINSTALL_GENERATE="1"
-npx prisma -v
-
-# 출력에서 Query Engine 라인의 해시값 확인
-```
-
-**확인된 commit hash 예시**:
-```
-605197351a3c8bdd595af2d2a9bc3025bca48ea2
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-이 전체 해시값을 복사하세요
-```
-
-**Step 2: 엔진 바이너리 다운로드**
-
-**중요**: Prisma는 3가지 엔진을 사용합니다. **모두 다운로드해야 합니다.**
-1. **query-engine** (Query Engine): 데이터베이스 쿼리 실행
-2. **schema-engine** (Schema Engine): 마이그레이션 실행 (`migrate dev`)
-3. **introspection-engine** (선택): 기존 DB에서 스키마 생성 (`prisma db pull`)
-
-**방법 A: 브라우저에서 다운로드 (VPN 끄고 시도)**
-
-**① query-engine 다운로드**
-```
-1. URL:
-   https://binaries.prisma.sh/all_commits/{commit_hash}/windows/query_engine-windows.dll.node.gz
-
-2. 예시:
-   https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/query_engine-windows.dll.node.gz
-
-3. 압축 해제 → query_engine-windows.dll.node
-```
-
-**② schema-engine 다운로드 (마이그레이션용)**
-```
-1. URL:
-   https://binaries.prisma.sh/all_commits/{commit_hash}/windows/schema-engine-windows.exe.gz
-
-2. 예시:
-   https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/schema-engine-windows.exe.gz
-
-3. 압축 해제 → schema-engine-windows.exe
-```
-
-**③ introspection-engine 다운로드 (선택 사항)**
-```
-1. URL:
-   https://binaries.prisma.sh/all_commits/{commit_hash}/windows/introspection-engine-windows.exe.gz
-
-2. 예시:
-   https://binaries.prisma.sh/all_commits/605197351a3c8bdd595af2d2a9bc3025bca48ea2/windows/introspection-engine-windows.exe.gz
-
-3. 압축 해제 → introspection-engine-windows.exe
-```
-
-**압축 해제 방법**:
-- 7-Zip 사용: 우클릭 → 7-Zip → Extract Here
-- 또는 PowerShell: `gzip -d 파일명.gz`
-
-**방법 B: PowerShell로 일괄 다운로드 (고급)**
-```powershell
-# PowerShell에서 실행 (commit_hash 부분을 실제 값으로 변경)
-$commitHash = "605197351a3c8bdd595af2d2a9bc3025bca48ea2"  # npx prisma -v에서 확인한 값
-$downloadDir = "$env:USERPROFILE\Downloads\prisma-engines"
-
-# 다운로드 폴더 생성
-New-Item -ItemType Directory -Force -Path $downloadDir
-
-# 1. query-engine 다운로드
-$queryUrl = "https://binaries.prisma.sh/all_commits/$commitHash/windows/query_engine-windows.dll.node.gz"
-Invoke-WebRequest -Uri $queryUrl -OutFile "$downloadDir\query_engine-windows.dll.node.gz"
-
-# 2. schema-engine 다운로드
-$schemaUrl = "https://binaries.prisma.sh/all_commits/$commitHash/windows/schema-engine-windows.exe.gz"
-Invoke-WebRequest -Uri $schemaUrl -OutFile "$downloadDir\schema-engine-windows.exe.gz"
-
-# 3. introspection-engine 다운로드 (선택)
-$introUrl = "https://binaries.prisma.sh/all_commits/$commitHash/windows/introspection-engine-windows.exe.gz"
-Invoke-WebRequest -Uri $introUrl -OutFile "$downloadDir\introspection-engine-windows.exe.gz"
-
-Write-Host "다운로드 완료: $downloadDir"
-Write-Host "7-Zip으로 모든 .gz 파일을 압축 해제하세요."
-```
-
-**Step 3: 엔진 파일을 프로젝트 내부에 저장 (팀 공유용)**
-
-```bash
-# 프로젝트 루트에 prisma-engines 폴더 생성
-mkdir prisma-engines
-cd prisma-engines
-mkdir windows
-
-# 다운로드 & 압축 해제한 파일을 여기에 복사
-# - query_engine-windows.dll.node
-# - schema-engine-windows.exe
-# - introspection-engine-windows.exe (선택)
-```
-
-**폴더 구조 예시**:
-```
-fullstack-nextjs/
-├── apps/
-├── packages/
-├── prisma-engines/           ← 새로 생성
-│   └── windows/
-│       ├── query_engine-windows.dll.node      ← Query Engine (필수)
-│       ├── schema-engine-windows.exe          ← Schema Engine (필수)
-│       └── introspection-engine-windows.exe   ← Introspection Engine (선택)
-├── pnpm-workspace.yaml
-└── package.json
-```
-
-**Step 4: 환경 변수 설정**
-
-**중요**: 3가지 엔진 모두 환경 변수로 지정해야 합니다.
-
-**방법 A: .env 파일에 추가 (프로젝트별 설정) - 추천**
-```bash
-# apps/api/.env에 추가
-
-# Query Engine (데이터베이스 쿼리 실행)
-PRISMA_QUERY_ENGINE_BINARY=../../prisma-engines/windows/query_engine-windows.dll.node
-
-# Schema Engine (마이그레이션 실행)
-PRISMA_SCHEMA_ENGINE_BINARY=../../prisma-engines/windows/schema-engine-windows.exe
-
-# Introspection Engine (선택 사항: prisma db pull 사용 시)
-PRISMA_INTROSPECTION_ENGINE_BINARY=../../prisma-engines/windows/introspection-engine-windows.exe
-```
-
-**방법 B: PowerShell 세션에서 설정 (임시)**
-```powershell
-# PowerShell에서 실행 (절대 경로 사용)
-$basePath = "C:\Users\YourName\fullstack-nextjs\prisma-engines\windows"
-$env:PRISMA_QUERY_ENGINE_BINARY="$basePath\query_engine-windows.dll.node"
-$env:PRISMA_SCHEMA_ENGINE_BINARY="$basePath\schema-engine-windows.exe"
-$env:PRISMA_INTROSPECTION_ENGINE_BINARY="$basePath\introspection-engine-windows.exe"
-```
-
-**방법 C: Windows 환경 변수로 설정 (영구적)**
-```
-1. Win + R → sysdm.cpl 입력
-2. 고급 탭 → 환경 변수 클릭
-3. 사용자 변수 → 새로 만들기 (3개 추가)
-
-   변수 1:
-   - 이름: PRISMA_QUERY_ENGINE_BINARY
-   - 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\query_engine-windows.dll.node
-
-   변수 2:
-   - 이름: PRISMA_SCHEMA_ENGINE_BINARY
-   - 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\schema-engine-windows.exe
-
-   변수 3:
-   - 이름: PRISMA_INTROSPECTION_ENGINE_BINARY
-   - 값: C:\Users\YourName\fullstack-nextjs\prisma-engines\windows\introspection-engine-windows.exe
-
-4. 확인 → PowerShell 재시작
-```
-
-**Step 5: Prisma 재생성 및 실행**
-```bash
-# PowerShell에서 실행
-cd apps/api
-
-# Prisma Client 재생성
-npx prisma generate
-
-# 마이그레이션 실행
-npx prisma migrate dev
-```
-
-**성공 시 출력**:
-```
-Prisma schema loaded from prisma\schema.prisma
-Datasource "db": SQLite database "dev.db" at "file:./prisma/dev.db"
-
-✔ Generated Prisma Client (version 5.22.0) to .\node_modules\@prisma\client
-```
-
-**Step 6: Git 관리 (팀 공유 시)**
-
-**옵션 A: 바이너리를 Git에 포함 (팀 전체 사용)**
-```bash
-# .gitignore에서 prisma-engines 폴더 제외 (포함시키기)
-# 이미 .gitignore에 있다면 주석 처리하거나 예외 추가
-
-# Git에 추가
-git add prisma-engines/
-git commit -m "chore: Prisma 엔진 바이너리 추가 (Windows)"
-git push
-```
-
-**장점**: 팀원 모두 동일한 바이너리 사용, 다운로드 문제 없음
-**단점**: Git 저장소 크기 증가 (~30MB)
-
-**옵션 B: 바이너리를 Git에서 제외 (각자 다운로드)**
-```gitignore
-# .gitignore에 추가
-prisma-engines/
-```
-
-팀원들은 각자 다운로드 후 동일한 경로에 배치
-
-**검증 방법**:
-```bash
-# PowerShell에서 실행
-
-# 1. 환경 변수 확인 (3개 모두)
-echo $env:PRISMA_QUERY_ENGINE_BINARY
-echo $env:PRISMA_SCHEMA_ENGINE_BINARY
-echo $env:PRISMA_INTROSPECTION_ENGINE_BINARY
-
-# 2. Prisma 버전 확인 (바이너리 경로 표시됨)
-npx prisma -v
-
-# 출력 예시:
-# Query Engine (Node-API) : libquery-engine {hash} (at C:\...\prisma-engines\windows\query_engine-windows.dll.node)
-#                                                     ^^^ 사용자 지정 경로가 표시되어야 함
-
-# 3. 마이그레이션 테스트 (schema-engine 사용)
-npx prisma migrate dev
-
-# 성공 시:
-# ✔ Generated Prisma Client
-# Your database is now in sync with your schema
-```
-
-**팀 협업 시 README 추가 예시**:
-```markdown
-## Windows 환경 설정
-
-Prisma 엔진 다운로드 이슈로 인해 로컬 바이너리를 사용합니다.
-
-1. `apps/api/.env`에 다음 3줄 추가:
-   ```
-   PRISMA_QUERY_ENGINE_BINARY=../../prisma-engines/windows/query_engine-windows.dll.node
-   PRISMA_SCHEMA_ENGINE_BINARY=../../prisma-engines/windows/schema-engine-windows.exe
-   PRISMA_INTROSPECTION_ENGINE_BINARY=../../prisma-engines/windows/introspection-engine-windows.exe
-   ```
-
-2. 바이너리가 없다면:
-   - `prisma-engines/windows/` 폴더 확인 (3개 파일 필요)
-   - 없으면 [다운로드 가이드](docs/guides/LOCAL-SETUP.md#문제-6-windows-prisma-엔진-다운로드-실패) 참고
-```
-
-**주의사항**:
-- Prisma 버전을 업데이트하면 commit hash가 변경되므로 바이너리도 새로 다운로드해야 함
-- Mac/Linux 개발자와 협업 시 각 OS별 바이너리를 별도로 관리:
-  ```
-  prisma-engines/
-  ├── windows/
-  │   ├── query_engine-windows.dll.node
-  │   ├── schema-engine-windows.exe
-  │   └── introspection-engine-windows.exe
-  ├── darwin/  (Mac)
-  │   ├── libquery_engine-darwin.dylib.node
-  │   ├── schema-engine-darwin
-  │   └── introspection-engine-darwin
-  └── linux/
-      ├── libquery_engine-linux.so.node
-      ├── schema-engine-linux
-      └── introspection-engine-linux
-  ```
-
-**참고**:
-- 이 방법은 외부 다운로드가 완전히 차단된 환경에서 가장 효과적
-- 한 번만 설정하면 팀 전체가 동일한 바이너리 사용 가능
-- VPN 사용 시 VPN 끄고 다운로드 시도
 
 ---
 
@@ -899,7 +474,7 @@ Prisma 엔진 다운로드 이슈로 인해 로컬 바이너리를 사용합니�
 ### 문서
 
 - [프로젝트 아키텍처](/docs/ARCHITECTURE.md)
-- [Prisma ORM 가이드](/docs/guides/DATABASE-QUERY.md)
+- [Kysely 쿼리 빌더 가이드](/docs/guides/DATABASE-QUERY.md)
 - [의존성 주입 가이드](/docs/guides/DEPENDENCY-INJECTION.md)
 - [RxJS & tap 연산자](/docs/guides/RXJS-TAP-OPERATOR.md)
 - [보안 가이드](/docs/guides/SECURITY.md)
@@ -908,21 +483,21 @@ Prisma 엔진 다운로드 이슈로 인해 로컬 바이너리를 사용합니�
 ### 유용한 명령어
 
 ```bash
-# Prisma
-npx prisma studio              # DB GUI 실행
-npx prisma migrate dev         # 마이그레이션 생성 및 적용
-npx prisma migrate reset       # DB 초기화 (모든 데이터 삭제)
-npx prisma generate            # Prisma Client 재생성
+# 데이터베이스 (Kysely)
+pnpm db:migrate                # 마이그레이션 실행
+pnpm db:studio                 # SQLite 뷰어 안내 메시지 출력
+
+# SQLite CLI로 DB 확인
+sqlite3 apps/api/database/dev.db
+.tables                        # 테이블 목록
+.schema users                  # 테이블 스키마
+.quit                          # 종료
 
 # 개발
 pnpm start:dev                 # API 서버 실행 (개발 모드)
 pnpm build                     # 빌드
 pnpm test                      # 테스트 실행
 pnpm lint                      # ESLint 실행
-
-# 데이터베이스
-pnpm prisma:migrate            # 마이그레이션 생성
-pnpm prisma:studio             # Prisma Studio 실행
 ```
 
 ---
@@ -942,26 +517,34 @@ pnpm install
 
 # 3. 마이그레이션 적용
 cd apps/api
-npx prisma migrate dev
-
-# 4. Prisma Client 재생성 (자동으로 됨)
-npx prisma generate
+pnpm db:migrate
 ```
+
+**실행 결과**:
+- 이미 실행된 마이그레이션은 자동으로 건너뜀
+- 새로운 마이그레이션만 순차적으로 실행됨
 
 ### 마이그레이션 충돌 해결
 
 여러 개발자가 동시에 마이그레이션을 생성한 경우:
 
 ```bash
-# 1. 로컬 DB 초기화
-npx prisma migrate reset
+# 1. 로컬 DB 초기화 (주의: 모든 데이터 삭제됨)
+rm apps/api/database/dev.db
 
 # 2. 모든 마이그레이션 재적용
-npx prisma migrate dev
+cd apps/api
+pnpm db:migrate
 ```
+
+**권장사항**:
+- 마이그레이션 파일은 순차적 번호 사용 (001_, 002_, 003_...)
+- 브랜치 작업 시 마이그레이션 번호 미리 조율
+- 충돌 발생 시 팀원과 상의 후 병합
 
 ---
 
-**마지막 업데이트**: 2025-12-05
+**마지막 업데이트**: 2025-12-08
 **작성자**: Backend Team
+**변경 내역**: Prisma → Kysely 마이그레이션 반영
 **문의**: 개발 환경 세팅 중 문제가 발생하면 팀 채널에 문의하세요.
